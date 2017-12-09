@@ -26,11 +26,15 @@ export function h(type, props) {
     }
   }
 
-  var results = type(props || {}, children)
+  var componentChildren = type(props || {}, children)
   return {
-    type: type.name,
+    type: (type.name || "component").replace(/[A-Z]/g, function(match, i) {
+      return (i > 0 ? "-" : "") + match.toLowerCase()
+    }),
     props: props || {},
-    children: Array.isArray(results) ? results : [results]
+    children: Array.isArray(componentChildren)
+      ? componentChildren
+      : [componentChildren]
   }
 }
 
