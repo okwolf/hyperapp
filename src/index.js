@@ -18,13 +18,20 @@ export function h(type, props) {
     }
   }
 
-  return typeof type === "string"
-    ? {
-        type: type,
-        props: props || {},
-        children: children
-      }
-    : type(props || {}, children)
+  if (typeof type === "string") {
+    return {
+      type: type,
+      props: props || {},
+      children: children
+    }
+  }
+
+  var results = type(props || {}, children)
+  return {
+    type: type.name,
+    props: props || {},
+    children: Array.isArray(results) ? results : [results]
+  }
 }
 
 export function app(props, container) {
@@ -126,11 +133,12 @@ export function app(props, container) {
   }
 
   function setElementProp(element, name, value, oldValue) {
-    if (name === "key") {
-    } else if (name === "style") {
+    if (name === "style") {
       for (var i in merge(oldValue, (value = value || {}))) {
         element.style[i] = null == value[i] ? "" : value[i]
       }
+    } else if ("object" === typeof value) {
+      element.setAttribute(name, JSON.stringify(value))
     } else {
       try {
         element[name] = null == value ? "" : value
