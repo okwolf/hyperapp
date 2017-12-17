@@ -1,4 +1,4 @@
-export function h(type, props) {
+export function h(tag, props) {
   var node
   var stack = []
   var children = []
@@ -12,23 +12,23 @@ export function h(type, props) {
       for (i = node.length; i--; ) {
         stack.push(node[i])
       }
-    } else if (null == node || node === true || node === false) {
+    } else if (null == node || true === node || false === node) {
     } else {
-      children.push(typeof node === "number" ? (node = node + "") : node)
+      children.push(typeof node === "number" ? node + "" : node)
     }
   }
 
-  if (typeof type === "string") {
+  if (typeof tag === "string") {
     return {
-      type: type,
+      tag: tag,
       props: props || {},
       children: children
     }
   }
 
-  var componentChildren = type(props || {}, children)
+  var componentChildren = tag(props || {}, children)
   return {
-    type: (type.name || "component").replace(/[A-Z]/g, function(match, i) {
+    tag: (tag.name || "component").replace(/[A-Z]/g, function(match, i) {
       return (i > 0 ? "-" : "") + match.toLowerCase()
     }),
     props: props || {},
@@ -38,95 +38,95 @@ export function h(type, props) {
   }
 }
 
-export function app(props, container) {
-  var lock
-  var root = (container = container || document.body).children[0]
-  var node = vnode(root, [].map)
-  var lifecycle = []
-  var appState = props.state || {}
-  var appActions = {}
-
-  repaint(init(appState, appActions, props.actions, []))
-
-  return appActions
-
+export function app(model, view, container) {
   function vnode(element, map) {
     return (
-      element &&
-      h(
-        element.tagName.toLowerCase(),
-        {},
-        map.call(element.childNodes, function(element) {
+      element && {
+        tag: element.tagName.toLowerCase(),
+        props: {},
+        children: map.call(element.childNodes, function(element) {
           return element.nodeType === 3
             ? element.nodeValue
             : vnode(element, map)
         })
-      )
+      }
     )
   }
 
-  function set(to, from) {
-    for (var i in from) {
-      to[i] = from[i]
+  function render(next) {
+    lock = !lock
+    next = view(store)
+
+    if (container && !lock) {
+      root = patch(container, root, node, (node = next))
     }
-    return to
+
+    while ((next = stack.pop())) next()
   }
 
-  function merge(to, from) {
-    return set(set({}, to), from)
+  function repaint() {
+    if (view && !lock) {
+      setTimeout(render, (lock = !lock))
+    }
   }
 
-  function setDeep(path, value, from) {
-    var to = {}
+  function assign(target, source) {
+    var result = {}
+
+    for (var i in target) {
+      result[i] = target[i]
+    }
+
+    for (var i in source) {
+      result[i] = source[i]
+    }
+
+    return result
+  }
+
+  function setDeep(path, value, source) {
+    var target = {}
     return 0 === path.length
       ? value
-      : ((to[path[0]] =
+      : ((target[path[0]] =
           1 < path.length
-            ? setDeep(path.slice(1), value, from[path[0]])
+            ? setDeep(path.slice(1), value, source[path[0]])
             : value),
-        merge(from, to))
+        assign(source, target))
   }
 
-  function get(path, from) {
+  function get(path, source) {
     for (var i = 0; i < path.length; i++) {
-      from = from[path[i]]
+      source = source[path[i]]
     }
-    return from
+    return source
   }
 
-  function isFunction(any) {
-    return "function" === typeof any
-  }
-
-  function init(state, actions, from, path) {
-    for (var key in from) {
-      isFunction(from[key])
+  function init(path, state, actions) {
+    for (var key in actions) {
+      typeof actions[key] === "function"
         ? (function(key, action) {
             actions[key] = function(data) {
-              state = get(path, appState)
+              state = get(path, store.state)
 
-              if (
-                isFunction((data = action(data))) &&
-                isFunction((data = data(state)))
-              ) {
-                data = data(actions)
+              if (typeof (data = action(data)) === "function") {
+                data = data(state, actions)
               }
 
               if (data && data !== state && !data.then) {
                 repaint(
-                  (appState = setDeep(path, merge(state, data), appState))
+                  (store.state = setDeep(
+                    path,
+                    assign(state, data),
+                    store.state
+                  ))
                 )
               }
 
               return data
             }
-          })(key, from[key])
-        : init(
-            state[key] || (state[key] = {}),
-            (actions[key] = {}),
-            from[key],
-            path.concat(key)
-          )
+          })(key, actions[key])
+        : init(path.concat(key), (state[key] = state[key] || {}), actions[key])
     }
   }
 
@@ -138,7 +138,7 @@ export function app(props, container) {
 
   function setElementProp(element, name, value, oldValue) {
     if (name === "style") {
-      for (var i in merge(oldValue, (value = value || {}))) {
+      for (var i in assign(oldValue, (value = value || {}))) {
         element.style[i] = null == value[i] ? "" : value[i]
       }
     } else if ("object" === typeof value) {
@@ -148,7 +148,7 @@ export function app(props, container) {
         element[name] = null == value ? "" : value
       } catch (_) {}
 
-      if (!isFunction(value)) {
+      if (typeof value !== "function") {
         if (null == value || false === value) {
           element.removeAttribute(name)
         } else {
@@ -162,12 +162,12 @@ export function app(props, container) {
     if (typeof node === "string") {
       var element = document.createTextNode(node)
     } else {
-      var element = (isSVG = isSVG || node.type === "svg")
-        ? document.createElementNS("http://www.w3.org/2000/svg", node.type)
-        : document.createElement(node.type)
+      var element = (isSVG = isSVG || node.tag === "svg")
+        ? document.createElementNS("http://www.w3.org/2000/svg", node.tag)
+        : document.createElement(node.tag)
 
       if (node.props.oncreate) {
-        lifecycle.push(function() {
+        stack.push(function() {
           node.props.oncreate(element)
         })
       }
@@ -184,7 +184,7 @@ export function app(props, container) {
   }
 
   function updateElement(element, oldProps, props) {
-    for (var i in merge(oldProps, props)) {
+    for (var i in assign(oldProps, props)) {
       var value = props[i]
       var oldValue = i === "value" || i === "checked" ? element[i] : oldProps[i]
 
@@ -194,19 +194,32 @@ export function app(props, container) {
     }
 
     if (props.onupdate) {
-      lifecycle.push(function() {
+      stack.push(function() {
         props.onupdate(element, oldProps)
       })
     }
   }
 
-  function removeElement(parent, element, props) {
+  function destroyChildren(element, node) {
+    if (typeof node !== "string") {
+      for (var i = 0; i < node.children.length; i++) {
+        destroyChildren(element.childNodes[i], node.children[i])
+      }
+
+      if (node.props.ondestroy) {
+        node.props.ondestroy(element)
+      }
+    }
+  }
+
+  function removeElement(parent, element, node) {
     function done() {
+      destroyChildren(element, node)
       parent.removeChild(element)
     }
 
-    if (props && props.onremove) {
-      props.onremove(element, done)
+    if (node.props && node.props.onremove) {
+      node.props.onremove(element, done)
     } else {
       done()
     }
@@ -216,10 +229,10 @@ export function app(props, container) {
     if (oldNode === node) {
     } else if (null == oldNode) {
       element = parent.insertBefore(createElement(node, isSVG), element)
-    } else if (node.type != null && node.type === oldNode.type) {
+    } else if (node.tag != null && node.tag === oldNode.tag) {
       updateElement(element, oldNode.props, node.props)
 
-      isSVG = isSVG || node.type === "svg"
+      isSVG = isSVG || node.tag === "svg"
 
       var len = node.children.length
       var oldLen = oldNode.children.length
@@ -280,7 +293,7 @@ export function app(props, container) {
         var oldChild = oldNode.children[i]
         var oldKey = getKey(oldChild)
         if (null == oldKey) {
-          removeElement(element, oldElements[i], oldChild.props)
+          removeElement(element, oldElements[i], oldChild)
         }
         i++
       }
@@ -289,7 +302,7 @@ export function app(props, container) {
         var keyedNode = oldKeyed[i]
         var reusableNode = keyedNode[1]
         if (!keyed[reusableNode.props.key]) {
-          removeElement(element, keyedNode[0], reusableNode.props)
+          removeElement(element, keyedNode[0], reusableNode)
         }
       }
     } else if (element && node !== element.nodeValue) {
@@ -300,30 +313,26 @@ export function app(props, container) {
           createElement(node, isSVG),
           (nextSibling = element)
         )
-        removeElement(parent, nextSibling, oldNode.props)
+        removeElement(parent, nextSibling, oldNode)
       }
     }
 
     return element
   }
 
-  function render(next) {
-    lock = !lock
+  var lock
+  var root = container && container.children[0]
+  var node = vnode(root, [].map)
+  var stack = []
+  var store = assign({}, model)
 
-    if (isFunction((next = props.view(appState)))) {
-      next = next(appActions)
-    }
+  repaint(
+    init(
+      [],
+      (store.state = assign({}, store.state)),
+      (store.actions = assign({}, store.actions))
+    )
+  )
 
-    if (!lock) {
-      root = patch(container, root, node, (node = next))
-    }
-
-    while ((next = lifecycle.pop())) next()
-  }
-
-  function repaint() {
-    if (props.view && !lock) {
-      setTimeout(render, (lock = !lock))
-    }
-  }
+  return store
 }
